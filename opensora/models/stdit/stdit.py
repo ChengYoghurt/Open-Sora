@@ -6,6 +6,8 @@ from einops import rearrange
 from timm.models.layers import DropPath
 from timm.models.vision_transformer import Mlp
 
+import torch.profiler
+
 from opensora.acceleration.checkpoint import auto_grad_checkpoint
 from opensora.acceleration.communications import gather_forward_split_backward, split_forward_gather_backward
 from opensora.acceleration.parallel_states import get_sequence_parallel_group
@@ -131,8 +133,16 @@ class STDiTBlock(nn.Module):
         x_t = rearrange(x_t, "(B S) T C -> B (T S) C", T=self.d_t, S=self.d_s)
         x = x + self.drop_path(gate_msa * x_t)
 
-        # cross attn
-        x = x + self.cross_attn(x, y, mask)
+        with torch.profiler.profile(
+            activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
+            record_shapes=True,
+            profile_memory=True,
+            with_stack=True
+        ) as prof:
+            # cross attn
+            x = x + self.cross_attn(x, y, mask)
+        # Print the profile results
+        print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
 
         # mlp
         x_m = t2i_modulate(self.norm2(x), shift_mlp, scale_mlp)
