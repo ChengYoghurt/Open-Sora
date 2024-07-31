@@ -9,6 +9,8 @@ from timm.models.layers import DropPath
 from timm.models.vision_transformer import Mlp
 from transformers import PretrainedConfig, PreTrainedModel
 
+import torch.profiler
+
 from opensora.acceleration.checkpoint import auto_grad_checkpoint
 from opensora.models.layers.blocks import (
     Attention,
@@ -145,8 +147,19 @@ class STDiT2Block(nn.Module):
             x_t = gate_tmp * x_t
         x = x + self.drop_path(x_t)
 
-        # cross attn
-        x = x + self.cross_attn(x, y, mask)
+        with torch.profiler.profile(
+            activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
+            record_shapes=True,
+            profile_memory=True,
+            with_stack=False
+        ) as prof:
+            with torch.profiler.record_function("stdit2 cross_attn"):
+                # cross attn
+                x = x + self.cross_attn(x, y, mask)
+        # Print the profile results
+        # print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=1))
+        # Exporting profiling data in Chrome trace format
+        prof.export_chrome_trace("trace.json")
 
         # modulate
         x_m = t2i_modulate(self.norm2(x), shift_mlp, scale_mlp)

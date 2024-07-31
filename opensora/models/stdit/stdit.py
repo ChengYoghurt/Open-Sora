@@ -137,12 +137,16 @@ class STDiTBlock(nn.Module):
             activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
             record_shapes=True,
             profile_memory=True,
-            with_stack=True
+            with_stack=False
         ) as prof:
-            # cross attn
-            x = x + self.cross_attn(x, y, mask)
+            with torch.profiler.record_function("stdit cross_attn"):
+                # cross attn
+                x = x + self.cross_attn(x, y, mask)
         # Print the profile results
-        print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
+        # print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=1))
+        # Exporting profiling data in Chrome trace format
+        prof.export_chrome_trace("trace.json")
+
 
         # mlp
         x_m = t2i_modulate(self.norm2(x), shift_mlp, scale_mlp)
