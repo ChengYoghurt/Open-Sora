@@ -116,7 +116,7 @@ class STDiT2Block(nn.Module):
         if x_mask is not None:
             x_m_zero = t2i_modulate(self.norm1(x), shift_msa_zero, scale_msa_zero)
             x_m = self.t_mask_select(x_mask, x_m, x_m_zero, T, S)
-        with record_function("stdit2 spatial_attn"):
+        with record_function("stdit2_spatial_attn"):
             # spatial branch
             x_s = rearrange(x_m, "B (T S) C -> (B T) S C", T=T, S=S)
             x_s = self.attn(x_s)
@@ -135,7 +135,7 @@ class STDiT2Block(nn.Module):
             x_m_zero = t2i_modulate(self.norm_temp(x), shift_tmp_zero, scale_tmp_zero)
             x_m = self.t_mask_select(x_mask, x_m, x_m_zero, T, S)
 
-        with record_function("stdit2 temp_attn"):
+        with record_function("stdit2_temp_attn"):
             # temporal branch
             x_t = rearrange(x_m, "B (T S) C -> (B S) T C", T=T, S=S)
             x_t = self.attn_temp(x_t)
@@ -154,11 +154,10 @@ class STDiT2Block(nn.Module):
         #     profile_memory=True,
         #     with_stack=False
         # ) as prof:
-        with record_function("stdit2 cross_attn"):
+        with record_function("stdit2_cross_attn"):
             # cross attn
             x = x + self.cross_attn(x, y, mask)
         # Print the profile results
-        print(2)
         # print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=1))
 
         # modulate

@@ -145,7 +145,6 @@ class STDiT3Block(nn.Module):
             # cross attention
             x = x + self.cross_attn(x, y, mask)
         # Print the profile results
-        print(3)
         # print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=1))
 
         # modulate (MLP)
