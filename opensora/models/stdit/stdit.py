@@ -6,7 +6,7 @@ from einops import rearrange
 from timm.models.layers import DropPath
 from timm.models.vision_transformer import Mlp
 
-import torch.profiler
+from torch.profiler import profile, record_function, ProfilerActivity
 
 from opensora.acceleration.checkpoint import auto_grad_checkpoint
 from opensora.acceleration.communications import gather_forward_split_backward, split_forward_gather_backward
@@ -133,20 +133,12 @@ class STDiTBlock(nn.Module):
         x_t = rearrange(x_t, "(B S) T C -> B (T S) C", T=self.d_t, S=self.d_s)
         x = x + self.drop_path(gate_msa * x_t)
 
-        with torch.profiler.profile(
-            activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
-            record_shapes=True,
-            profile_memory=True,
-            with_stack=False
-        ) as prof:
-            with torch.profiler.record_function("stdit cross_attn"):
-                # cross attn
-                x = x + self.cross_attn(x, y, mask)
+        with record_function("stdit cross_attn"):
+            # cross attn
+            x = x + self.cross_attn(x, y, mask)
         # Print the profile results
+        print(1)
         # print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=1))
-        # Exporting profiling data in Chrome trace format
-        prof.export_chrome_trace("trace.json")
-
 
         # mlp
         x_m = t2i_modulate(self.norm2(x), shift_mlp, scale_mlp)

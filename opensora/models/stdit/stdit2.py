@@ -9,7 +9,7 @@ from timm.models.layers import DropPath
 from timm.models.vision_transformer import Mlp
 from transformers import PretrainedConfig, PreTrainedModel
 
-import torch.profiler
+from torch.profiler import profile, record_function, ProfilerActivity
 
 from opensora.acceleration.checkpoint import auto_grad_checkpoint
 from opensora.models.layers.blocks import (
@@ -116,18 +116,18 @@ class STDiT2Block(nn.Module):
         if x_mask is not None:
             x_m_zero = t2i_modulate(self.norm1(x), shift_msa_zero, scale_msa_zero)
             x_m = self.t_mask_select(x_mask, x_m, x_m_zero, T, S)
-
-        # spatial branch
-        x_s = rearrange(x_m, "B (T S) C -> (B T) S C", T=T, S=S)
-        x_s = self.attn(x_s)
-        x_s = rearrange(x_s, "(B T) S C -> B (T S) C", T=T, S=S)
-        if x_mask is not None:
-            x_s_zero = gate_msa_zero * x_s
-            x_s = gate_msa * x_s
-            x_s = self.t_mask_select(x_mask, x_s, x_s_zero, T, S)
-        else:
-            x_s = gate_msa * x_s
-        x = x + self.drop_path(x_s)
+        with record_function("stdit2 spatial_attn"):
+            # spatial branch
+            x_s = rearrange(x_m, "B (T S) C -> (B T) S C", T=T, S=S)
+            x_s = self.attn(x_s)
+            x_s = rearrange(x_s, "(B T) S C -> B (T S) C", T=T, S=S)
+            if x_mask is not None:
+                x_s_zero = gate_msa_zero * x_s
+                x_s = gate_msa * x_s
+                x_s = self.t_mask_select(x_mask, x_s, x_s_zero, T, S)
+            else:
+                x_s = gate_msa * x_s
+            x = x + self.drop_path(x_s)
 
         # modulate
         x_m = t2i_modulate(self.norm_temp(x), shift_tmp, scale_tmp)
@@ -135,31 +135,31 @@ class STDiT2Block(nn.Module):
             x_m_zero = t2i_modulate(self.norm_temp(x), shift_tmp_zero, scale_tmp_zero)
             x_m = self.t_mask_select(x_mask, x_m, x_m_zero, T, S)
 
-        # temporal branch
-        x_t = rearrange(x_m, "B (T S) C -> (B S) T C", T=T, S=S)
-        x_t = self.attn_temp(x_t)
-        x_t = rearrange(x_t, "(B S) T C -> B (T S) C", T=T, S=S)
-        if x_mask is not None:
-            x_t_zero = gate_tmp_zero * x_t
-            x_t = gate_tmp * x_t
-            x_t = self.t_mask_select(x_mask, x_t, x_t_zero, T, S)
-        else:
-            x_t = gate_tmp * x_t
-        x = x + self.drop_path(x_t)
+        with record_function("stdit2 temp_attn"):
+            # temporal branch
+            x_t = rearrange(x_m, "B (T S) C -> (B S) T C", T=T, S=S)
+            x_t = self.attn_temp(x_t)
+            x_t = rearrange(x_t, "(B S) T C -> B (T S) C", T=T, S=S)
+            if x_mask is not None:
+                x_t_zero = gate_tmp_zero * x_t
+                x_t = gate_tmp * x_t
+                x_t = self.t_mask_select(x_mask, x_t, x_t_zero, T, S)
+            else:
+                x_t = gate_tmp * x_t
+            x = x + self.drop_path(x_t)
 
-        with torch.profiler.profile(
-            activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
-            record_shapes=True,
-            profile_memory=True,
-            with_stack=False
-        ) as prof:
-            with torch.profiler.record_function("stdit2 cross_attn"):
-                # cross attn
-                x = x + self.cross_attn(x, y, mask)
+        # with torch.profiler.profile(
+        #     activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
+        #     record_shapes=True,
+        #     profile_memory=True,
+        #     with_stack=False
+        # ) as prof:
+        with record_function("stdit2 cross_attn"):
+            # cross attn
+            x = x + self.cross_attn(x, y, mask)
         # Print the profile results
+        print(2)
         # print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=1))
-        # Exporting profiling data in Chrome trace format
-        prof.export_chrome_trace("trace.json")
 
         # modulate
         x_m = t2i_modulate(self.norm2(x), shift_mlp, scale_mlp)

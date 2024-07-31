@@ -11,7 +11,7 @@ from timm.models.layers import DropPath
 from timm.models.vision_transformer import Mlp
 from transformers import PretrainedConfig, PreTrainedModel
 
-import torch.profiler
+from torch.profiler import profile, record_function, ProfilerActivity
 
 from opensora.acceleration.checkpoint import auto_grad_checkpoint
 from opensora.acceleration.communications import gather_forward_split_backward, split_forward_gather_backward
@@ -135,19 +135,18 @@ class STDiT3Block(nn.Module):
         # residual
         x = x + self.drop_path(x_m_s)
 
-        with torch.profiler.profile(
-            activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
-            record_shapes=True,
-            profile_memory=True,
-            with_stack=False
-        ) as prof:
-            with torch.profiler.record_function("stdit3 cross_attn"):
-                # cross attention
-                x = x + self.cross_attn(x, y, mask)
+        # with torch.profiler.profile(
+        #     activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
+        #     record_shapes=True,
+        #     profile_memory=True,
+        #     with_stack=False
+        # ) as prof:
+        with record_function("stdit3 cross_attn"):
+            # cross attention
+            x = x + self.cross_attn(x, y, mask)
         # Print the profile results
+        print(3)
         # print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=1))
-        # Exporting profiling data in Chrome trace format
-        prof.export_chrome_trace("trace.json")
 
         # modulate (MLP)
         x_m = t2i_modulate(self.norm2(x), shift_mlp, scale_mlp)
