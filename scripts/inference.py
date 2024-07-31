@@ -9,6 +9,9 @@ from colossalai.cluster import DistCoordinator
 from mmengine.runner import set_random_seed
 from tqdm import tqdm
 
+from torch.profiler import profile, record_function, ProfilerActivity
+import pandas as pd
+
 from opensora.acceleration.parallel_states import set_sequence_parallel_group
 from opensora.datasets import save_sample
 from opensora.datasets.aspect import get_image_size, get_num_frames
@@ -33,6 +36,32 @@ from opensora.utils.inference_utils import (
 )
 from opensora.utils.misc import all_exists, create_logger, is_distributed, is_main_process, to_torch_dtype
 
+# Function to extract and save profiling data
+def extract_and_save_profiler_data(profiler, filename):
+    # Extract data from the profiler
+    table_str = profiler.key_averages().table(sort_by="cpu_time_total", row_limit=-1)
+    print(table_str)
+    events = table_str.split('\n')
+    
+    # Skip header and empty lines
+    rows = [row for row in events[1:] if row.strip()]
+
+    # Parse rows into a list of dictionaries
+    data = []
+    for row in rows:
+        parts = row.split()
+        if len(parts) < 4:  # Ensure there are enough columns to parse
+            continue
+        # Extract necessary columns; adjust indices based on the actual output format
+        name = parts[0]
+        cpu_time_total = parts[1].split()[-1]
+        cuda_time_total = parts[2].split()[-1]
+        data.append({'name': name, 'cpu_time_total': cpu_time_total, 'cuda_time_total': cuda_time_total})
+    
+    # Convert to DataFrame and save to CSV
+    df = pd.DataFrame(data)
+    df.to_csv(filename, index=False)
+    return df
 
 def main():
     torch.set_grad_enabled(False)
@@ -263,18 +292,50 @@ def main():
                 torch.manual_seed(1024)
                 z = torch.randn(len(batch_prompts), vae.out_channels, *latent_size, device=device, dtype=dtype)
                 masks = apply_mask_strategy(z, refs, ms, loop_i, align=align)
-                samples = scheduler.sample(
-                    model,
-                    text_encoder,
-                    z=z,
-                    prompts=batch_prompts_loop,
-                    device=device,
-                    additional_args=model_args,
-                    progress=verbose >= 2,
-                    mask=masks,
-                )
+                with profile(
+                    activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                    record_shapes=True,
+                    profile_memory=True,
+                    with_stack=False
+                ) as prof:
+                    samples = scheduler.sample(
+                        model,
+                        text_encoder,
+                        z=z,
+                        prompts=batch_prompts_loop,
+                        device=device,
+                        additional_args=model_args,
+                        progress=verbose >= 2,
+                        mask=masks,
+                    )
                 samples = vae.decode(samples.to(dtype), num_frames=num_frames)
                 video_clips.append(samples)
+                key_averages = prof.key_averages(group_by_input_shape=True)
+
+                # Filter entries with name containing 'attn'
+                attn_entries = [entry for entry in key_averages if 'attn' in entry.key]
+                for entry in attn_entries:
+                    print(f"Name: {entry.key}")
+                    print(f"  Self CPU Time Total: {entry.self_cpu_time_total}")  
+                    print(f"  CPU Time Total: {entry.cpu_time_total}")  
+                    print(f"  Self CUDA Time Total: {entry.self_cuda_time_total}")  
+                    print(f"  CUDA Time Total: {entry.cuda_time_total}")  
+                    print(f"  CPU Mem Usage: {entry.cpu_memory_usage}")  
+                    print(f"  CUDA Mem Usage: {entry.cuda_memory_usage}")  
+                    print(f"  Input Shapes: {entry.input_shapes}")  
+                    print('-' * 80)
+                    # for attr, value in vars(entry).items():
+                    #     print(f"{attr}: {value}")
+                    # print("-" * 40)
+
+                # # Extract and save the profiling data to a CSV file
+                # filename = f'profiling_results_{loop_i}.csv'
+                # profiler_data = extract_and_save_profiler_data(prof, filename)
+
+                # # Print the original profiling results
+                # print(f"Profiling results saved to {filename}:")
+                # print(profiler_data)
+
 
             # == save samples ==
             if is_main_process():
