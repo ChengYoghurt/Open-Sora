@@ -62,11 +62,12 @@ def extract_and_save_profiler_data(profiler, filename):
     df.to_csv(filename, index=False)
     return df
 
-def main(loop_idx, cfg):
+def main():
     torch.set_grad_enabled(False)
     # ======================================================
     # configs & runtime variables
     # ======================================================
+    cfg = parse_configs(training=False)
 
     # == device and dtype ==
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -331,9 +332,4 @@ def main(loop_idx, cfg):
 
 
 if __name__ == "__main__":
-    main_loops_num = 100
-    # == parse configs ==
-    cfg = parse_configs(training=False)
-    for j in range(main_loops_num):
-        print(f"Running main loop {j+1}")
-        main(loop_idx=j+1, cfg=cfg)  
+    main()  
