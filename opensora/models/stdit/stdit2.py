@@ -304,6 +304,7 @@ class STDiT2(PreTrainedModel):
                 self.freeze_not_temporal()
             elif config.freeze == "text":
                 self.freeze_text()
+        self.all_timings = []
 
     def get_dynamic_size(self, x):
         _, _, T, H, W = x.size()
@@ -401,9 +402,10 @@ class STDiT2(PreTrainedModel):
             y_lens = [y.shape[2]] * y.shape[0]
             y = y.squeeze(1).view(1, -1, x.shape[-1])
 
+        block_timings = []
         # blocks
-        for _, block in enumerate(self.blocks):
-            x = auto_grad_checkpoint(
+        for i, block in enumerate(self.blocks):
+            x, timings = auto_grad_checkpoint(
                 block,
                 x,
                 y,
@@ -417,6 +419,8 @@ class STDiT2(PreTrainedModel):
                 S,
             )
             # x.shape: [B, N, C]
+            block_timings.append(timings)
+        self.all_timings.append(block_timings)
 
         # final process
         x = self.final_layer(x, t, x_mask, t0_spc, T, S)  # [B, N, C=T_p * H_p * W_p * C_out]
@@ -425,6 +429,19 @@ class STDiT2(PreTrainedModel):
         # cast to float32 for better accuracy
         x = x.to(torch.float32)
         return x
+
+    def save_timings(self, filename):
+        with open(filename, 'w', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(["Block", "Pass", "Spatial Attn Time (s)", "Temporal Attn Time (s)", "Cross Attn Time (s)"])
+            for pass_idx, pass_timings in enumerate(self.all_timings):
+                for block_idx, timing in enumerate(pass_timings):
+                    writer.writerow([
+                        block_idx, pass_idx,
+                        timing['spatial_attn'],
+                        timing['temporal_attn'],
+                        timing['cross_attn']
+                    ])
 
     def unpatchify(self, x, N_t, N_h, N_w, R_t, R_h, R_w):
         """
