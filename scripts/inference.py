@@ -9,8 +9,7 @@ from colossalai.cluster import DistCoordinator
 from mmengine.runner import set_random_seed
 from tqdm import tqdm
 
-from torch.profiler import profile, record_function, ProfilerActivity
-import pandas as pd
+import time
 
 from opensora.acceleration.parallel_states import set_sequence_parallel_group
 from opensora.datasets import save_sample
@@ -305,20 +304,6 @@ def main():
                 )
                 samples = vae.decode(samples.to(dtype), num_frames=num_frames)
                 video_clips.append(samples)
-                # key_averages = prof.key_averages(group_by_input_shape=True)
-
-                # for attr, value in vars(entry).items():
-                #     print(f"{attr}: {value}")
-                # print("-" * 40)
-
-                # # Extract and save the profiling data to a CSV file
-                # filename = f'profiling_results_{loop_i}.csv'
-                # profiler_data = extract_and_save_profiler_data(prof, filename)
-
-                # # Print the original profiling results
-                # print(f"Profiling results saved to {filename}:")
-                # print(profiler_data)
-
 
             # == save samples ==
             if is_main_process():
