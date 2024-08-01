@@ -11,7 +11,8 @@ from timm.models.layers import DropPath
 from timm.models.vision_transformer import Mlp
 from transformers import PretrainedConfig, PreTrainedModel
 
-from torch.profiler import profile, record_function, ProfilerActivity
+import time
+import csv
 
 from opensora.acceleration.checkpoint import auto_grad_checkpoint
 from opensora.acceleration.communications import gather_forward_split_backward, split_forward_gather_backward
@@ -118,13 +119,21 @@ class STDiT3Block(nn.Module):
 
         # attention
         if self.temporal:
+            t0 = time.time()
             x_m = rearrange(x_m, "B (T S) C -> (B S) T C", T=T, S=S)
             x_m = self.attn(x_m)
             x_m = rearrange(x_m, "(B S) T C -> B (T S) C", T=T, S=S)
+            torch.cuda.current_stream().synchronize()
+            t1 = time.time()
+            timings['temporal_attn'] = t1 - t0
         else:
+            t2 = time.time()
             x_m = rearrange(x_m, "B (T S) C -> (B T) S C", T=T, S=S)
             x_m = self.attn(x_m)
             x_m = rearrange(x_m, "(B T) S C -> B (T S) C", T=T, S=S)
+            torch.cuda.current_stream().synchronize()
+            t3 = time.time()
+            timings['spatial_attn'] = t3 - t2
 
         # modulate (attention)
         x_m_s = gate_msa * x_m
@@ -135,17 +144,15 @@ class STDiT3Block(nn.Module):
         # residual
         x = x + self.drop_path(x_m_s)
 
-        # with torch.profiler.profile(
-        #     activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
-        #     record_shapes=True,
-        #     profile_memory=True,
-        #     with_stack=False
-        # ) as prof:
-        with record_function("stdit3 cross_attn"):
-            # cross attention
-            x = x + self.cross_attn(x, y, mask)
-        # Print the profile results
-        # print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=1))
+        t4 = time.time()
+        # cross attention
+        x = x + self.cross_attn(x, y, mask)
+        torch.cuda.current_stream().synchronize()
+        t5 = time.time()
+        if self.temporal:
+            timings['t_cross_attn'] = t5 - t4
+        else:
+            timings['s_cross_attn'] = t5 - t4
 
         # modulate (MLP)
         x_m = t2i_modulate(self.norm2(x), shift_mlp, scale_mlp)
@@ -165,7 +172,7 @@ class STDiT3Block(nn.Module):
         # residual
         x = x + self.drop_path(x_m_s)
 
-        return x
+        return x, timings
 
 
 class STDiT3Config(PretrainedConfig):
@@ -314,6 +321,7 @@ class STDiT3(PreTrainedModel):
         if config.freeze_y_embedder:
             for param in self.y_embedder.parameters():
                 param.requires_grad = False
+        self.all_timings = []
 
     def initialize_weights(self):
         # Initialize transformer layers:
@@ -429,11 +437,14 @@ class STDiT3(PreTrainedModel):
 
         x = rearrange(x, "B T S C -> B (T S) C", T=T, S=S)
 
+        block_timings = []
         # === blocks ===
         for spatial_block, temporal_block in zip(self.spatial_blocks, self.temporal_blocks):
-            x = auto_grad_checkpoint(spatial_block, x, y, t_mlp, y_lens, x_mask, t0_mlp, T, S)
-            x = auto_grad_checkpoint(temporal_block, x, y, t_mlp, y_lens, x_mask, t0_mlp, T, S)
-
+            x, s_timings = auto_grad_checkpoint(spatial_block, x, y, t_mlp, y_lens, x_mask, t0_mlp, T, S)
+            x, t_timings = auto_grad_checkpoint(temporal_block, x, y, t_mlp, y_lens, x_mask, t0_mlp, T, S)
+            block_timings.append(s_timings | t_timings)
+        self.all_timings.append(block_timings)
+        
         if self.enable_sequence_parallelism:
             x = rearrange(x, "B (T S) C -> B T S C", T=T, S=S)
             x = gather_forward_split_backward(x, get_sequence_parallel_group(), dim=2, grad_scale="up")
