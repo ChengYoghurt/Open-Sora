@@ -96,6 +96,7 @@ class STDiT2Block(nn.Module):
 
     def forward(self, x, y, t, t_tmp, mask=None, x_mask=None, t0=None, t0_tmp=None, T=None, S=None):
         B, N, C = x.shape
+        timings = {}
 
         shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
             self.scale_shift_table[None] + t.reshape(B, 6, -1)
@@ -116,18 +117,22 @@ class STDiT2Block(nn.Module):
         if x_mask is not None:
             x_m_zero = t2i_modulate(self.norm1(x), shift_msa_zero, scale_msa_zero)
             x_m = self.t_mask_select(x_mask, x_m, x_m_zero, T, S)
-        with record_function("stdit2_spatial_attn"):
-            # spatial branch
-            x_s = rearrange(x_m, "B (T S) C -> (B T) S C", T=T, S=S)
-            x_s = self.attn(x_s)
-            x_s = rearrange(x_s, "(B T) S C -> B (T S) C", T=T, S=S)
-            if x_mask is not None:
-                x_s_zero = gate_msa_zero * x_s
-                x_s = gate_msa * x_s
-                x_s = self.t_mask_select(x_mask, x_s, x_s_zero, T, S)
-            else:
-                x_s = gate_msa * x_s
-            x = x + self.drop_path(x_s)
+        
+        t0 = time.time()
+        # spatial branch
+        x_s = rearrange(x_m, "B (T S) C -> (B T) S C", T=T, S=S)
+        x_s = self.attn(x_s)
+        x_s = rearrange(x_s, "(B T) S C -> B (T S) C", T=T, S=S)
+        if x_mask is not None:
+            x_s_zero = gate_msa_zero * x_s
+            x_s = gate_msa * x_s
+            x_s = self.t_mask_select(x_mask, x_s, x_s_zero, T, S)
+        else:
+            x_s = gate_msa * x_s
+        x = x + self.drop_path(x_s)
+        torch.cuda.current_stream().synchronize()
+        t1 = time.time()
+        timings['spatial_attn'] = t1 - t0
 
         # modulate
         x_m = t2i_modulate(self.norm_temp(x), shift_tmp, scale_tmp)
@@ -135,31 +140,30 @@ class STDiT2Block(nn.Module):
             x_m_zero = t2i_modulate(self.norm_temp(x), shift_tmp_zero, scale_tmp_zero)
             x_m = self.t_mask_select(x_mask, x_m, x_m_zero, T, S)
 
-        with record_function("stdit2_temp_attn"):
-            # temporal branch
-            x_t = rearrange(x_m, "B (T S) C -> (B S) T C", T=T, S=S)
-            x_t = self.attn_temp(x_t)
-            x_t = rearrange(x_t, "(B S) T C -> B (T S) C", T=T, S=S)
-            if x_mask is not None:
-                x_t_zero = gate_tmp_zero * x_t
-                x_t = gate_tmp * x_t
-                x_t = self.t_mask_select(x_mask, x_t, x_t_zero, T, S)
-            else:
-                x_t = gate_tmp * x_t
-            x = x + self.drop_path(x_t)
+        t2 = time.time()
+        # temporal branch
+        x_t = rearrange(x_m, "B (T S) C -> (B S) T C", T=T, S=S)
+        x_t = self.attn_temp(x_t)
+        x_t = rearrange(x_t, "(B S) T C -> B (T S) C", T=T, S=S)
+        if x_mask is not None:
+            x_t_zero = gate_tmp_zero * x_t
+            x_t = gate_tmp * x_t
+            x_t = self.t_mask_select(x_mask, x_t, x_t_zero, T, S)
+        else:
+            x_t = gate_tmp * x_t
+        x = x + self.drop_path(x_t)
+        torch.cuda.current_stream().synchronize()
+        t3 = time.time()
+        timings['temporal_attn'] = t3 - t2
 
-        # with torch.profiler.profile(
-        #     activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
-        #     record_shapes=True,
-        #     profile_memory=True,
-        #     with_stack=False
-        # ) as prof:
-        with record_function("stdit2_cross_attn"):
-            # cross attn
-            x = x + self.cross_attn(x, y, mask)
-        # Print the profile results
-        # print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=1))
 
+        t4 = time.time()
+        # cross attn
+        x = x + self.cross_attn(x, y, mask)
+        torch.cuda.current_stream().synchronize()
+        t5 = time.time()
+        timings['cross_attn'] = t5 - t4
+        
         # modulate
         x_m = t2i_modulate(self.norm2(x), shift_mlp, scale_mlp)
         if x_mask is not None:
@@ -176,7 +180,7 @@ class STDiT2Block(nn.Module):
             x_mlp = gate_mlp * x_mlp
         x = x + self.drop_path(x_mlp)
 
-        return x
+        return x, timings
 
 
 class STDiT2Config(PretrainedConfig):
