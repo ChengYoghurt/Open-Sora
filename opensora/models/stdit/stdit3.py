@@ -492,6 +492,32 @@ class STDiT3(PreTrainedModel):
         x = x.to(torch.float32)
         return x
 
+def save_timings(self, filename):
+    with open(filename, 'w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow([
+            "Block", "Pass",
+            "Prep Attn Time (s)", "Mod Attn1 Time (s)", "Spatial Attn Time (s)", "Temporal Attn Time (s)", 
+            "Mod Attn2 Time (s)", "Residual1 Time (s)", "Cross Attn Time (s)", "Mod Mlp1 Time (s)", 
+            "Mlp Time (s)", "Mod Mlp2 Time (s)", "Residual2 Time (s)"
+        ])
+        for pass_idx, pass_timings in enumerate(self.all_timings):
+            for block_idx, timing in enumerate(pass_timings):
+                writer.writerow([
+                    block_idx, pass_idx,
+                    timing.get('prep_attn', 0),
+                    timing.get('mod_attn1', 0),
+                    timing.get('spatial_attn', 0),
+                    timing.get('temporal_attn', 0),
+                    timing.get('mod_attn2', 0),
+                    timing.get('residual1', 0),
+                    timing.get('cross_attn', 0),
+                    timing.get('mod_mlp1', 0),
+                    timing.get('mlp', 0),
+                    timing.get('mod_mlp2', 0),
+                    timing.get('residual2', 0)
+                ])
+
     def unpatchify(self, x, N_t, N_h, N_w, R_t, R_h, R_w):
         """
         Args:
