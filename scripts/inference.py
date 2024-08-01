@@ -292,41 +292,24 @@ def main():
                 torch.manual_seed(1024)
                 z = torch.randn(len(batch_prompts), vae.out_channels, *latent_size, device=device, dtype=dtype)
                 masks = apply_mask_strategy(z, refs, ms, loop_i, align=align)
-                with profile(
-                    activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-                    record_shapes=True,
-                    profile_memory=True,
-                    with_stack=False
-                ) as prof:
-                    samples = scheduler.sample(
-                        model,
-                        text_encoder,
-                        z=z,
-                        prompts=batch_prompts_loop,
-                        device=device,
-                        additional_args=model_args,
-                        progress=verbose >= 2,
-                        mask=masks,
-                    )
+                
+                samples = scheduler.sample(
+                    model,
+                    text_encoder,
+                    z=z,
+                    prompts=batch_prompts_loop,
+                    device=device,
+                    additional_args=model_args,
+                    progress=verbose >= 2,
+                    mask=masks,
+                )
                 samples = vae.decode(samples.to(dtype), num_frames=num_frames)
                 video_clips.append(samples)
-                key_averages = prof.key_averages(group_by_input_shape=True)
+                # key_averages = prof.key_averages(group_by_input_shape=True)
 
-                # Filter entries with name containing 'attn'
-                attn_entries = [entry for entry in key_averages if 'attn' in entry.key]
-                for entry in attn_entries:
-                    print(f"Name: {entry.key}")
-                    print(f"  Self CPU Time Total: {entry.self_cpu_time_total}")  
-                    print(f"  CPU Time Total: {entry.cpu_time_total}")  
-                    print(f"  Self CUDA Time Total: {entry.self_cuda_time_total}")  
-                    print(f"  CUDA Time Total: {entry.cuda_time_total}")  
-                    print(f"  CPU Mem Usage: {entry.cpu_memory_usage}")  
-                    print(f"  CUDA Mem Usage: {entry.cuda_memory_usage}")  
-                    print(f"  Input Shapes: {entry.input_shapes}")  
-                    print('-' * 80)
-                    # for attr, value in vars(entry).items():
-                    #     print(f"{attr}: {value}")
-                    # print("-" * 40)
+                # for attr, value in vars(entry).items():
+                #     print(f"{attr}: {value}")
+                # print("-" * 40)
 
                 # # Extract and save the profiling data to a CSV file
                 # filename = f'profiling_results_{loop_i}.csv'

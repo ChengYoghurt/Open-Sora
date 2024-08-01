@@ -397,22 +397,42 @@ class STDiT2(PreTrainedModel):
             y_lens = [y.shape[2]] * y.shape[0]
             y = y.squeeze(1).view(1, -1, x.shape[-1])
 
-        # blocks
-        for _, block in enumerate(self.blocks):
-            x = auto_grad_checkpoint(
-                block,
-                x,
-                y,
-                t_spc_mlp,
-                t_tmp_mlp,
-                y_lens,
-                x_mask,
-                t0_spc_mlp,
-                t0_tmp_mlp,
-                T,
-                S,
-            )
-            # x.shape: [B, N, C]
+        with profile(
+            activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+            record_shapes=True,
+            profile_memory=True,
+            with_stack=False
+        ) as prof:
+            # blocks
+            for _, block in enumerate(self.blocks):
+                x = auto_grad_checkpoint(
+                    block,
+                    x,
+                    y,
+                    t_spc_mlp,
+                    t_tmp_mlp,
+                    y_lens,
+                    x_mask,
+                    t0_spc_mlp,
+                    t0_tmp_mlp,
+                    T,
+                    S,
+                )
+                # x.shape: [B, N, C]
+
+        key_averages = prof.key_averages(group_by_input_shape=True)
+        # Filter entries with name containing 'attn'
+        attn_entries = [entry for entry in key_averages if 'attn' in entry.key]
+        for entry in attn_entries:
+            print(f"Name: {entry.key}")
+            print(f"  Self CPU Time Total: {entry.self_cpu_time_total}")  
+            print(f"  CPU Time Total: {entry.cpu_time_total}")  
+            print(f"  Self CUDA Time Total: {entry.self_cuda_time_total}")  
+            print(f"  CUDA Time Total: {entry.cuda_time_total}")  
+            print(f"  CPU Mem Usage: {entry.cpu_memory_usage}")  
+            print(f"  CUDA Mem Usage: {entry.cuda_memory_usage}")  
+            print(f"  Input Shapes: {entry.input_shapes}")  
+            print('-' * 80)
 
         # final process
         x = self.final_layer(x, t, x_mask, t0_spc, T, S)  # [B, N, C=T_p * H_p * W_p * C_out]
