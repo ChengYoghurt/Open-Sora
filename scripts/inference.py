@@ -304,6 +304,8 @@ def main():
                 )
                 samples = vae.decode(samples.to(dtype), num_frames=num_frames)
                 video_clips.append(samples)
+                # == save timings ==
+                model.save_timings("timing_results.csv")
 
             # == save samples ==
             if is_main_process():
