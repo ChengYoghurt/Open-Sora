@@ -102,9 +102,7 @@ class STDiT3Block(nn.Module):
     ):
         # prepare modulate parameters
         B, N, C = x.shape
-        timings = {}
 
-        t_prep_s = time.time()
         shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
             self.scale_shift_table[None] + t.reshape(B, 6, -1)
         ).chunk(6, dim=1)
@@ -112,97 +110,54 @@ class STDiT3Block(nn.Module):
             shift_msa_zero, scale_msa_zero, gate_msa_zero, shift_mlp_zero, scale_mlp_zero, gate_mlp_zero = (
                 self.scale_shift_table[None] + t0.reshape(B, 6, -1)
             ).chunk(6, dim=1)
-        torch.cuda.current_stream().synchronize()
-        t_prep_e = time.time()
-        timings['prep_attn'] = t_prep_e - t_prep_s
 
-        t_mod_attn_s = time.time()
         # modulate (attention)
         x_m = t2i_modulate(self.norm1(x), shift_msa, scale_msa)
         if x_mask is not None:
             x_m_zero = t2i_modulate(self.norm1(x), shift_msa_zero, scale_msa_zero)
             x_m = self.t_mask_select(x_mask, x_m, x_m_zero, T, S)
-        torch.cuda.current_stream().synchronize()
-        t_mod_attn_e = time.time()
-        timings['mod_attn1'] = t_mod_attn_e - t_mod_attn_s
 
         # attention
         if self.temporal:
-            t0 = time.time()
             x_m = rearrange(x_m, "B (T S) C -> (B S) T C", T=T, S=S)
             x_m = self.attn(x_m)
             x_m = rearrange(x_m, "(B S) T C -> B (T S) C", T=T, S=S)
-            torch.cuda.current_stream().synchronize()
-            t1 = time.time()
-            timings['temporal_attn'] = t1 - t0
         else:
-            t2 = time.time()
             x_m = rearrange(x_m, "B (T S) C -> (B T) S C", T=T, S=S)
             x_m = self.attn(x_m)
             x_m = rearrange(x_m, "(B T) S C -> B (T S) C", T=T, S=S)
-            torch.cuda.current_stream().synchronize()
-            t3 = time.time()
-            timings['spatial_attn']  = t3 - t2
 
-        t_gate_msa_s = time.time()
         # modulate (attention)
         x_m_s = gate_msa * x_m
         if x_mask is not None:
             x_m_s_zero = gate_msa_zero * x_m
             x_m_s = self.t_mask_select(x_mask, x_m_s, x_m_s_zero, T, S)
-        torch.cuda.current_stream().synchronize()
-        t_gate_msa_e = time.time()
-        timings['mod_attn2'] = t_gate_msa_e - t_gate_msa_s
 
-        t_res_s = time.time()
         # residual
         x = x + self.drop_path(x_m_s)
-        torch.cuda.current_stream().synchronize()
-        t_res_e = time.time()
-        timings['residual1'] = t_res_e - t_res_s
 
-        t4 = time.time()
         # cross attention
         x = x + self.cross_attn(x, y, mask)
-        torch.cuda.current_stream().synchronize()
-        t5 = time.time()
-        timings['cross_attn'] = t5 - t4
 
-        t_mod_mlp_s = time.time()
         # modulate (MLP)
         x_m = t2i_modulate(self.norm2(x), shift_mlp, scale_mlp)
         if x_mask is not None:
             x_m_zero = t2i_modulate(self.norm2(x), shift_mlp_zero, scale_mlp_zero)
             x_m = self.t_mask_select(x_mask, x_m, x_m_zero, T, S)
-        torch.cuda.current_stream().synchronize()
-        t_mod_mlp_e = time.time()
-        timings['mod_mlp1'] = t_mod_mlp_e - t_mod_mlp_s
 
-        t_mlp_s = time.time()
         # MLP
         x_m = self.mlp(x_m)
-        torch.cuda.current_stream().synchronize()
-        t_mlp_e = time.time()
-        timings['mlp'] = t_mlp_e - t_mlp_s
 
-        t_gate_mlp_s = time.time()
         # modulate (MLP)
         x_m_s = gate_mlp * x_m
         if x_mask is not None:
             x_m_s_zero = gate_mlp_zero * x_m
             x_m_s = self.t_mask_select(x_mask, x_m_s, x_m_s_zero, T, S)
-        torch.cuda.current_stream().synchronize()
-        t_gate_mlp_e = time.time()
-        timings['mod_mlp2'] = t_gate_mlp_e - t_gate_mlp_s
 
-        t_res2_s = time.time()
         # residual
         x = x + self.drop_path(x_m_s)
-        torch.cuda.current_stream().synchronize()
-        t_res2_e = time.time()
-        timings['residual2'] = t_res2_e - t_res2_s
 
-        return x, timings
+        return x
 
 
 class STDiT3Config(PretrainedConfig):
