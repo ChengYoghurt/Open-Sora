@@ -364,6 +364,7 @@ class STDiT3(PreTrainedModel):
         timestep = timestep.to(dtype)
         y = y.to(dtype)
 
+        t_pos_emb_s = time.time()
         # === get pos embed ===
         _, _, Tx, Hx, Wx = x.size()
         T, H, W = self.get_dynamic_size(x)
@@ -390,7 +391,10 @@ class STDiT3(PreTrainedModel):
         resolution_sq = (height[0].item() * width[0].item()) ** 0.5
         scale = resolution_sq / self.input_sq_size
         pos_emb = self.pos_embed(x, H, W, scale=scale, base_size=base_size)
+        torch.cuda.current_stream().synchronize()
+        t_pos_emb_e = time.time()
 
+        t_ts_emb_s = time.time()
         # === get timestep embed ===
         t = self.t_embedder(timestep, dtype=x.dtype)  # [B, C]
         fps = self.fps_embedder(fps.unsqueeze(1), B)
@@ -402,7 +406,10 @@ class STDiT3(PreTrainedModel):
             t0 = self.t_embedder(t0_timestep, dtype=x.dtype)
             t0 = t0 + fps
             t0_mlp = self.t_block(t0)
+        torch.cuda.current_stream().synchronize()
+        t_ts_emb_e = time.time()
 
+        t_y_emb_s = time.time()
         # === get y embed ===
         if self.config.skip_y_embedder:
             y_lens = mask
@@ -410,7 +417,10 @@ class STDiT3(PreTrainedModel):
                 y_lens = y_lens.long().tolist()
         else:
             y, y_lens = self.encode_text(y, mask)
+        torch.cuda.current_stream().synchronize()
+        t_y_emb_e = time.time()
 
+        t_x_emb_s = time.time()
         # === get x embed ===
         x = self.x_embedder(x)  # [B, N, C]
         x = rearrange(x, "B (T S) C -> B T S C", T=T, S=S)
@@ -422,17 +432,24 @@ class STDiT3(PreTrainedModel):
             S = S // dist.get_world_size(get_sequence_parallel_group())
 
         x = rearrange(x, "B T S C -> B (T S) C", T=T, S=S)
+        torch.cuda.current_stream().synchronize()
+        t_x_emb_e = time.time()
 
-        s_block_timings = []
+        s_blocks_timings = []
         t_block_timings = []
         # === blocks ===
         for spatial_block, temporal_block in zip(self.spatial_blocks, self.temporal_blocks):
-            x, s_timings = auto_grad_checkpoint(spatial_block, x, y, t_mlp, y_lens, x_mask, t0_mlp, T, S)
-            x, t_timings = auto_grad_checkpoint(temporal_block, x, y, t_mlp, y_lens, x_mask, t0_mlp, T, S)
-            s_block_timings.append(s_timings)
-            t_block_timings.append(t_timings)
-        self.spatial_blocks_timings.append(s_block_timings)
-        self.temporal_blocks_timings.append(t_block_timings)
+            t_spatial_block_s = time.time()
+            x = auto_grad_checkpoint(spatial_block, x, y, t_mlp, y_lens, x_mask, t0_mlp, T, S)
+            torch.cuda.current_stream().synchronize()
+            t_spatial_block_e = time.time()
+            s_block_timings.append(t_spatial_block_e - t_spatial_block_s)
+
+            t_temporal_block_s = time.time()
+            x = auto_grad_checkpoint(temporal_block, x, y, t_mlp, y_lens, x_mask, t0_mlp, T, S)
+            torch.cuda.current_stream().synchronize()
+            t_temporal_block_e = time.time()
+            t_block_timings.append(t_temporal_block_e - t_temporal_block_s)
 
         if self.enable_sequence_parallelism:
             x = rearrange(x, "B (T S) C -> B T S C", T=T, S=S)
@@ -440,12 +457,15 @@ class STDiT3(PreTrainedModel):
             S = S * dist.get_world_size(get_sequence_parallel_group())
             x = rearrange(x, "B T S C -> B (T S) C", T=T, S=S)
 
+        t_final_s = time.time()
         # === final layer ===
         x = self.final_layer(x, t, x_mask, t0, T, S)
         x = self.unpatchify(x, T, H, W, Tx, Hx, Wx)
 
         # cast to float32 for better accuracy
         x = x.to(torch.float32)
+        torch.cuda.current_stream().synchronize()
+        t_final_e = time.time()
         return x
 
     def unpatchify(self, x, N_t, N_h, N_w, R_t, R_h, R_w):
