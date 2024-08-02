@@ -12,7 +12,6 @@ from timm.models.vision_transformer import Mlp
 from transformers import PretrainedConfig, PreTrainedModel
 
 import time
-import csv
 
 from opensora.acceleration.checkpoint import auto_grad_checkpoint
 from opensora.acceleration.communications import gather_forward_split_backward, split_forward_gather_backward
@@ -469,15 +468,17 @@ class STDiT3(PreTrainedModel):
 
         x = rearrange(x, "B T S C -> B (T S) C", T=T, S=S)
 
-        block_timings = []
+        s_block_timings = []
+        t_block_timings = []
         # === blocks ===
         for spatial_block, temporal_block in zip(self.spatial_blocks, self.temporal_blocks):
             x, s_timings = auto_grad_checkpoint(spatial_block, x, y, t_mlp, y_lens, x_mask, t0_mlp, T, S)
             x, t_timings = auto_grad_checkpoint(temporal_block, x, y, t_mlp, y_lens, x_mask, t0_mlp, T, S)
-            block_timings.append(s_timings)
-            block_timings.append(t_timings)
-        self.all_timings.append(block_timings)
-        
+            s_block_timings.append(s_timings)
+            t_block_timings.append(t_timings)
+        self.spatial_blocks_timings.append(s_block_timings)
+        self.temporal_blocks_timings.append(t_block_timings)
+
         if self.enable_sequence_parallelism:
             x = rearrange(x, "B (T S) C -> B T S C", T=T, S=S)
             x = gather_forward_split_backward(x, get_sequence_parallel_group(), dim=2, grad_scale="up")
@@ -491,32 +492,6 @@ class STDiT3(PreTrainedModel):
         # cast to float32 for better accuracy
         x = x.to(torch.float32)
         return x
-
-def save_timings(self, filename):
-    with open(filename, 'w', newline='') as file:
-        writer = csv.writer(file)
-        writer.writerow([
-            "Block", "Pass",
-            "Prep Attn Time (s)", "Mod Attn1 Time (s)", "Spatial Attn Time (s)", "Temporal Attn Time (s)", 
-            "Mod Attn2 Time (s)", "Residual1 Time (s)", "Cross Attn Time (s)", "Mod Mlp1 Time (s)", 
-            "Mlp Time (s)", "Mod Mlp2 Time (s)", "Residual2 Time (s)"
-        ])
-        for pass_idx, pass_timings in enumerate(self.all_timings):
-            for block_idx, timing in enumerate(pass_timings):
-                writer.writerow([
-                    block_idx, pass_idx,
-                    timing.get('prep_attn', 0),
-                    timing.get('mod_attn1', 0),
-                    timing.get('spatial_attn', 0),
-                    timing.get('temporal_attn', 0),
-                    timing.get('mod_attn2', 0),
-                    timing.get('residual1', 0),
-                    timing.get('cross_attn', 0),
-                    timing.get('mod_mlp1', 0),
-                    timing.get('mlp', 0),
-                    timing.get('mod_mlp2', 0),
-                    timing.get('residual2', 0)
-                ])
 
     def unpatchify(self, x, N_t, N_h, N_w, R_t, R_h, R_w):
         """
