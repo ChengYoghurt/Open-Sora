@@ -35,32 +35,90 @@ from opensora.utils.inference_utils import (
 )
 from opensora.utils.misc import all_exists, create_logger, is_distributed, is_main_process, to_torch_dtype
 
-# Function to extract and save profiling data
-def extract_and_save_profiler_data(profiler, filename):
-    # Extract data from the profiler
-    table_str = profiler.key_averages().table(sort_by="cpu_time_total", row_limit=-1)
-    print(table_str)
-    events = table_str.split('\n')
-    
-    # Skip header and empty lines
-    rows = [row for row in events[1:] if row.strip()]
+import os
+import csv
+def save_blocks_timings(timings, filepath):
+    with open(filepath, 'w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow([
+            "Block", "Pass",
+            "Prep Attn Time (s)", "Mod Attn1 Time (s)", "Spatial Attn Time (s)", "Temporal Attn Time (s)", 
+            "Mod Attn2 Time (s)", "Residual1 Time (s)", "Cross Attn Time (s)", "Mod Mlp1 Time (s)", 
+            "Mlp Time (s)", "Mod Mlp2 Time (s)", "Residual2 Time (s)"
+        ])
+        for pass_idx, pass_timings in enumerate(timings):
+            for block_idx, timing in enumerate(pass_timings):
+                writer.writerow([
+                    block_idx, pass_idx,
+                    timing.get('prep_attn', 0),
+                    timing.get('mod_attn1', 0),
+                    timing.get('spatial_attn', 0),
+                    timing.get('temporal_attn', 0),
+                    timing.get('mod_attn2', 0),
+                    timing.get('residual1', 0),
+                    timing.get('cross_attn', 0),
+                    timing.get('mod_mlp1', 0),
+                    timing.get('mlp', 0),
+                    timing.get('mod_mlp2', 0),
+                    timing.get('residual2', 0)
+                ])
+def save_stdit_timings(all_timings, filepath):
+    # Assuming all_timings is a list of dictionaries (one for each forward pass)
 
-    # Parse rows into a list of dictionaries
-    data = []
-    for row in rows:
-        parts = row.split()
-        if len(parts) < 4:  # Ensure there are enough columns to parse
-            continue
-        # Extract necessary columns; adjust indices based on the actual output format
-        name = parts[0]
-        cpu_time_total = parts[1].split()[-1]
-        cuda_time_total = parts[2].split()[-1]
-        data.append({'name': name, 'cpu_time_total': cpu_time_total, 'cuda_time_total': cuda_time_total})
-    
-    # Convert to DataFrame and save to CSV
-    df = pd.DataFrame(data)
-    df.to_csv(filename, index=False)
-    return df
+    with open(filepath, 'w', newline='') as file:
+        writer = csv.writer(file)
+
+        # Prepare headers
+        headers = [
+            "Pass", 
+            "pos_emb", 
+            "ts_emb", 
+            "y_emb", 
+            "x_emb",
+            "final"
+        ]
+
+        # Determine the maximum number of s_blocks and t_blocks
+        max_s_blocks = max(len(timings["s_blocks"]) for timings in all_timings)
+        max_t_blocks = max(len(timings["t_blocks"]) for timings in all_timings)
+
+        # Add headers for s_blocks and t_blocks
+        for i in range(max_s_blocks):
+            headers.append(f"s_block_{i}")
+
+        for i in range(max_t_blocks):
+            headers.append(f"t_block_{i}")
+
+        writer.writerow(headers)
+
+        # Write rows
+        for pass_idx, timings in enumerate(all_timings):
+            row = [
+                pass_idx,
+                timings["pos_emb"],
+                timings["ts_emb"],
+                timings["y_emb"],
+                timings["x_emb"],
+                timings["final"]
+            ]
+            
+            # Add s_blocks timings
+            for s_block_time in timings["s_blocks"]:
+                row.append(s_block_time)
+            
+            # Fill missing s_blocks with None
+            for _ in range(max_s_blocks - len(timings["s_blocks"])):
+                row.append(None)
+            
+            # Add t_blocks timings
+            for t_block_time in timings["t_blocks"]:
+                row.append(t_block_time)
+            
+            # Fill missing t_blocks with None
+            for _ in range(max_t_blocks - len(timings["t_blocks"])):
+                row.append(None)
+            
+            writer.writerow(row)
 
 def main():
     torch.set_grad_enabled(False)
@@ -304,8 +362,7 @@ def main():
                 samples = vae.decode(samples.to(dtype), num_frames=num_frames)
                 video_clips.append(samples)
                 # == save timings ==
-                timing_results_filename = f"timing_results_{loop_idx}.csv"
-                model.save_timings(timing_results_filename)
+                save_stdit_timings(model.all_timings, "results/stdit3/stdit.csv")
 
             # == save samples ==
             if is_main_process():
