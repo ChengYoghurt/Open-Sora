@@ -306,8 +306,7 @@ class STDiT3(PreTrainedModel):
         if config.freeze_y_embedder:
             for param in self.y_embedder.parameters():
                 param.requires_grad = False
-        self.spatial_blocks_timings  = []
-        self.temporal_blocks_timings = []
+        self.all_timings = []
 
     def initialize_weights(self):
         # Initialize transformer layers:
@@ -436,20 +435,20 @@ class STDiT3(PreTrainedModel):
         t_x_emb_e = time.time()
 
         s_blocks_timings = []
-        t_block_timings = []
+        t_blocks_timings = []
         # === blocks ===
         for spatial_block, temporal_block in zip(self.spatial_blocks, self.temporal_blocks):
             t_spatial_block_s = time.time()
             x = auto_grad_checkpoint(spatial_block, x, y, t_mlp, y_lens, x_mask, t0_mlp, T, S)
             torch.cuda.current_stream().synchronize()
             t_spatial_block_e = time.time()
-            s_block_timings.append(t_spatial_block_e - t_spatial_block_s)
+            s_blocks_timings.append(t_spatial_block_e - t_spatial_block_s)
 
             t_temporal_block_s = time.time()
             x = auto_grad_checkpoint(temporal_block, x, y, t_mlp, y_lens, x_mask, t0_mlp, T, S)
             torch.cuda.current_stream().synchronize()
             t_temporal_block_e = time.time()
-            t_block_timings.append(t_temporal_block_e - t_temporal_block_s)
+            t_blocks_timings.append(t_temporal_block_e - t_temporal_block_s)
 
         if self.enable_sequence_parallelism:
             x = rearrange(x, "B (T S) C -> B T S C", T=T, S=S)
@@ -466,6 +465,16 @@ class STDiT3(PreTrainedModel):
         x = x.to(torch.float32)
         torch.cuda.current_stream().synchronize()
         t_final_e = time.time()
+        timings = {
+            "pos_emb" : t_pos_emb_e - t_pos_emb_s,
+            "ts_emb"  : t_ts_emb_e  - t_ts_emb_s,
+            "y_emb"   : t_y_emb_e   - t_y_emb_s,
+            "x_emb"   : t_x_emb_e   - t_x_emb_s,
+            "s_blocks": s_blocks_timings,
+            "t_blocks": t_blocks_timings,
+            "final"   : t_final_e   - t_final_s
+        }
+        self.all_timings.append(timings)
         return x
 
     def unpatchify(self, x, N_t, N_h, N_w, R_t, R_h, R_w):
