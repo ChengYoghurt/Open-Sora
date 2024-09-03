@@ -83,11 +83,15 @@ class RFLOW:
                 noise_added = mask_t_upper
 
             # classifier-free guidance
-            z_in = torch.cat([z, z], 0)
-            t = torch.cat([t, t], 0)
-            pred = model(z_in, t, **model_args).chunk(2, dim=1)[0]
-            pred_cond, pred_uncond = pred.chunk(2, dim=0)
-            v_pred = pred_uncond + guidance_scale * (pred_cond - pred_uncond)
+            if i % 2 == 0:  # Compute model output only on even steps
+                z_in = torch.cat([z, z], 0)
+                t_concat = torch.cat([t, t], 0)
+                pred = model(z_in, t_concat, **model_args).chunk(2, dim=1)[0]
+                pred_cond, pred_uncond = pred.chunk(2, dim=0)
+                v_pred = pred_uncond + guidance_scale * (pred_cond - pred_uncond)
+                prev_v_pred = v_pred  # Store the current prediction for reuse
+            else:
+                v_pred = prev_v_pred  # Reuse the previous prediction
 
             # update z
             dt = timesteps[i] - timesteps[i + 1] if i < len(timesteps) - 1 else timesteps[i]
