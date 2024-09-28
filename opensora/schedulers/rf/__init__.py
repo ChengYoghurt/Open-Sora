@@ -66,7 +66,7 @@ class RFLOW:
         if mask is not None:
             noise_added = torch.zeros_like(mask, dtype=torch.bool)
             noise_added = noise_added | (mask == 1)
-
+        half_num_sampling_steps = self.num_sampling_steps>>1
         progress_wrap = tqdm if progress else (lambda x: x)
         for i, t in progress_wrap(enumerate(timesteps)):
             # mask for adding noise
@@ -83,8 +83,8 @@ class RFLOW:
                 noise_added = mask_t_upper
 
             # classifier-free guidance
-            if (i < self.num_sampling_steps>>1) and (i % 2 == 0)
-                or (self.num_sampling_steps>>1 <= i):  
+            if (i < half_num_sampling_steps) and (i % 2 == 0)
+                or (half_num_sampling_steps <= i):  
                 z_in = torch.cat([z, z], 0)
                 t_concat = torch.cat([t, t], 0)
                 pred = model(z_in, t_concat, **model_args).chunk(2, dim=1)[0]
