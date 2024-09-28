@@ -67,6 +67,10 @@ class RFLOW:
             noise_added = torch.zeros_like(mask, dtype=torch.bool)
             noise_added = noise_added | (mask == 1)
 
+        half_num_sampling_steps = self.num_sampling_steps >> 1
+        mid_s = half_num_sampling_steps >> 1
+        mid_e = mid_s + half_num_sampling_steps
+
         progress_wrap = tqdm if progress else (lambda x: x)
         for i, t in progress_wrap(enumerate(timesteps)):
             # mask for adding noise
@@ -83,7 +87,9 @@ class RFLOW:
                 noise_added = mask_t_upper
 
             # classifier-free guidance
-            if i % 2 == 0:  # Compute model output only on even steps
+            if i < mid_s
+                or mid_e <= i
+                or mid_s <= i < mid_e and i % 2 == 0:  # Compute model output only on even steps
                 z_in = torch.cat([z, z], 0)
                 t_concat = torch.cat([t, t], 0)
                 pred = model(z_in, t_concat, **model_args).chunk(2, dim=1)[0]
