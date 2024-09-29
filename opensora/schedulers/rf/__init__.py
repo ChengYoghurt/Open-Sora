@@ -87,9 +87,7 @@ class RFLOW:
                 noise_added = mask_t_upper
 
             # classifier-free guidance
-            if i < mid_s
-                or mid_e <= i
-                or mid_s <= i < mid_e and i % 2 == 0:  # Compute model output only on even steps
+            if i < mid_s or mid_e <= i or (mid_s <= i < mid_e and i % 2 == 0):
                 z_in = torch.cat([z, z], 0)
                 t_concat = torch.cat([t, t], 0)
                 pred = model(z_in, t_concat, **model_args).chunk(2, dim=1)[0]
