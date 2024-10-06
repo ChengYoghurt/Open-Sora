@@ -90,6 +90,11 @@ def main():
     # == build diffusion model ==
     input_size = (num_frames, *image_size)
     latent_size = vae.get_latent_size(input_size)
+    print("================================================")
+    print("In inference:")
+    print("input_size =", input_size)
+    print("latent_size =", latent_size)
+
     model = (
         build_module(
             cfg.model,
@@ -142,6 +147,7 @@ def main():
     sample_name = cfg.get("sample_name", None)
     prompt_as_path = cfg.get("prompt_as_path", False)
 
+    print("batch_size =", batch_size) # in vbench evaluation, it was set to 1
     # == Iter over all samples ==
     for i in progress_wrap(range(0, len(prompts), batch_size)):
         # == prepare batch prompts ==
@@ -249,7 +255,7 @@ def main():
 
             # == Iter over loop generation ==
             video_clips = []
-            for loop_i in range(loop):
+            for loop_i in range(loop): # loop=1
                 # == get prompt for loop i ==
                 batch_prompts_loop = extract_prompts_loop(batch_prompts, loop_i)
 
@@ -262,6 +268,7 @@ def main():
                 # == sampling ==
                 torch.manual_seed(1024)
                 z = torch.randn(len(batch_prompts), vae.out_channels, *latent_size, device=device, dtype=dtype)
+                print("z shape =", z.shape)
                 masks = apply_mask_strategy(z, refs, ms, loop_i, align=align)
                 samples = scheduler.sample(
                     model,
@@ -274,6 +281,7 @@ def main():
                     mask=masks,
                 )
                 samples = vae.decode(samples.to(dtype), num_frames=num_frames)
+                print("samples shape =", samples.shape)
                 video_clips.append(samples)
 
             # == save samples ==
@@ -282,10 +290,16 @@ def main():
                     if verbose >= 2:
                         logger.info("Prompt: %s", batch_prompt)
                     save_path = save_paths[idx]
-                    video = [video_clips[i][idx] for i in range(loop)]
-                    for i in range(1, loop):
+                    video = [video_clips[i][idx] for i in range(loop)] # collects the generated clips for the current prompt (idx) from the loop
+                    print("Saving samples+++++++++++++++++++++++++++++++++++++++++++++++")
+                    for i in range(1, loop): # starts from the second function, trims the beginning frames
                         video[i] = video[i][:, dframe_to_frame(condition_frame_length) :]
-                    video = torch.cat(video, dim=1)
+                        print(f"video clip{i} shape ={len(video[i])}")
+                    print(f"video shape ={len(video)}")
+                    print(f"video[0] shape ={video[0].shape}")
+                    video = torch.cat(video, dim=1) # all clips in the video are concatenated along the time dimension (dim=1).
+                    print(f"Final video shape ={video.shape}")
+                    print("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
                     save_path = save_sample(
                         video,
                         fps=save_fps,

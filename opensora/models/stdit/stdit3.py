@@ -117,10 +117,12 @@ class STDiT3Block(nn.Module):
         # attention
         if self.temporal:
             x_m = rearrange(x_m, "B (T S) C -> (B S) T C", T=T, S=S)
+            # print("In temporal attn:")
             x_m = self.attn(x_m)
             x_m = rearrange(x_m, "(B S) T C -> B (T S) C", T=T, S=S)
         else:
             x_m = rearrange(x_m, "B (T S) C -> (B T) S C", T=T, S=S)
+            # print("In spatial attn:")
             x_m = self.attn(x_m)
             x_m = rearrange(x_m, "(B T) S C -> B (T S) C", T=T, S=S)
 
@@ -134,7 +136,13 @@ class STDiT3Block(nn.Module):
         x = x + self.drop_path(x_m_s)
 
         # cross attention
+        # print("=============================")
+        # print("In corss attn:")
+        # print("Cross input x_shape=", x.shape)
+        # print("Cross input y_shape=", y.shape)
+        # print("Cross input mask_len=", len(mask))
         x = x + self.cross_attn(x, y, mask)
+        # print("Cross output x_shape=", x.shape)
 
         # modulate (MLP)
         x_m = t2i_modulate(self.norm2(x), shift_mlp, scale_mlp)
@@ -358,6 +366,11 @@ class STDiT3(PreTrainedModel):
         x = x.to(dtype)
         timestep = timestep.to(dtype)
         y = y.to(dtype)
+        # print("================================")
+        # print("In STDiT3 forward:")
+        # print("x[0] shape =", B)
+        # print("timestep shape =", timestep.shape)
+        # print("================================")
 
         # === get pos embed ===
         _, _, Tx, Hx, Wx = x.size()

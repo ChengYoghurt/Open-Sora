@@ -83,10 +83,19 @@ class RFLOW:
                 noise_added = mask_t_upper
 
             # classifier-free guidance
+            print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+            print("z before concat =", z.shape)
+            print("t before concat =", t.shape)
             z_in = torch.cat([z, z], 0)
             t = torch.cat([t, t], 0)
+            print("z after concat =", z_in.shape)
+            print("t after concat =", t.shape)
             pred = model(z_in, t, **model_args).chunk(2, dim=1)[0]
+            # split along dimension 0, resulting in two distinct outputs: 
+            # one that incorporates the guidance from the prompts (conditioned)
+            # another that does not (unconditioned).
             pred_cond, pred_uncond = pred.chunk(2, dim=0)
+            # guidance_scale: controls how much influence the conditioning has on the final prediction
             v_pred = pred_uncond + guidance_scale * (pred_cond - pred_uncond)
 
             # update z

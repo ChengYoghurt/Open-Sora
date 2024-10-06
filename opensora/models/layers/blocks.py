@@ -184,6 +184,7 @@ class Attention(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, N, C = x.shape
+        # print("Input x_shape =", x.shape)
         # flash attn is not memory efficient for small sequences, this is empirical
         enable_flash_attn = self.enable_flash_attn and (N > B)
         qkv = self.qkv(x)
@@ -191,6 +192,12 @@ class Attention(nn.Module):
 
         qkv = qkv.view(qkv_shape).permute(2, 0, 3, 1, 4)
         q, k, v = qkv.unbind(0)
+
+        # Print shapes of q, k, v
+        # print("Shape of q:", q.shape)
+        # print("Shape of k:", k.shape)
+        # print("Shape of v:", v.shape)
+
         if self.qk_norm_legacy:
             # WARNING: this may be a bug
             if self.rope:
@@ -237,6 +244,7 @@ class Attention(nn.Module):
             x = attn @ v # compute a weighted sum of the value
 
         x_output_shape = (B, N, C)
+        # print("Output x_shape=", x_output_shape)
         if not enable_flash_attn:
             x = x.transpose(1, 2)
         x = x.reshape(x_output_shape)
@@ -486,16 +494,22 @@ class MultiHeadCrossAttention(nn.Module):
     def forward(self, x, cond, mask=None):
         # query/value: img tokens; key: condition; mask: if padding tokens
         B, N, C = x.shape
-
+        # print("Input x_shape=", x.shape)
         q = self.q_linear(x).view(1, -1, self.num_heads, self.head_dim)
         kv = self.kv_linear(cond).view(1, -1, 2, self.num_heads, self.head_dim)
         k, v = kv.unbind(2)
+
+        # Print shapes of q, k, v
+        # print("Shape of q:", q.shape)
+        # print("Shape of k:", k.shape)
+        # print("Shape of v:", v.shape)
 
         attn_bias = None
         if mask is not None:
             attn_bias = xformers.ops.fmha.BlockDiagonalMask.from_seqlens([N] * B, mask)
         x = xformers.ops.memory_efficient_attention(q, k, v, p=self.attn_drop.p, attn_bias=attn_bias)
-
+        # print("Output x_shape=", x.shape)
+        # print("=============================")
         x = x.view(B, -1, C)
         x = self.proj(x)
         x = self.proj_drop(x)
