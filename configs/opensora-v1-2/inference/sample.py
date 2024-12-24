@@ -7,6 +7,7 @@ save_fps = 24
 prompt = ["a beautiful waterfall",]
 
 save_dir = "./samples/samples/"
+save_frames = True
 seed = 42
 batch_size = 1
 multi_resolution = "STDiT2"
@@ -35,7 +36,7 @@ text_encoder = dict(
 scheduler = dict(
     type="rflow",
     use_timestep_transform=True,
-    num_sampling_steps=100, # TODO
+    num_sampling_steps=30,
     cfg_scale=7.0,
 )
 
