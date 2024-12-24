@@ -272,38 +272,55 @@ def main():
                 torch.manual_seed(1024)
                 z = torch.randn(len(batch_prompts), vae.out_channels, *latent_size, device=device, dtype=dtype)
                 masks = apply_mask_strategy(z, refs, ms, loop_i, align=align)
-                samples = scheduler.sample(
-                    model,
-                    text_encoder,
-                    z=z,
-                    prompts=batch_prompts_loop,
-                    device=device,
-                    additional_args=model_args,
-                    progress=verbose >= 2,
-                    mask=masks,
-                )
-                samples = vae.decode(samples.to(dtype), num_frames=num_frames)
-                video_clips.append(samples)
-
-            # == save samples ==
-            if is_main_process():
-                for idx, batch_prompt in enumerate(batch_prompts):
-                    if verbose >= 2:
-                        logger.info("Prompt: %s", batch_prompt)
-                    save_path = save_paths[idx]
-                    video = [video_clips[i][idx] for i in range(loop)]
-                    for i in range(1, loop):
-                        video[i] = video[i][:, dframe_to_frame(condition_frame_length) :]
-                    video = torch.cat(video, dim=1)
-                    save_path = save_sample(
-                        video,
-                        fps=save_fps,
-                        save_path=save_path,
-                        verbose=verbose >= 2,
-                    )
-                    if save_path.endswith(".mp4") and cfg.get("watermark", False):
-                        time.sleep(1)  # prevent loading previous generated video
-                        add_watermark(save_path)
+                # TODO: Loop all ea_timesteps
+                try:
+                    for ea_i, ea_timesteps in enumerate(ea_timesteps_list):
+                        samples = scheduler.sample(
+                            model,
+                            text_encoder,
+                            z=z,
+                            prompts=batch_prompts_loop,
+                            device=device,
+                            additional_args=model_args,
+                            progress=verbose >= 2,
+                            mask=masks,
+                            ea_timesteps=ea_timesteps,
+                        )
+                        samples = vae.decode(samples.to(dtype), num_frames=num_frames)
+                        video_clips.append(samples)
+                        # TODO: Save all ea_timesteps samples
+                        # == save samples ==
+                        if is_main_process():
+                            for idx, batch_prompt in enumerate(batch_prompts):
+                                if verbose >= 2:
+                                    logger.info("Prompt: %s", batch_prompt)
+                                save_path = f"{save_paths[idx]}_ea_{ea_i}" # TODO
+                                video = [video_clips[i][idx] for i in range(loop)]
+                                for i in range(1, loop):
+                                    video[i] = video[i][:, dframe_to_frame(condition_frame_length) :]
+                                video = torch.cat(video, dim=1)
+                                if save_frames:
+                                    save_path = save_sample_as_frames(
+                                        video,
+                                        fps=save_fps,
+                                        save_path=save_path,
+                                        verbose=verbose >= 2,
+                                    )
+                                    logger.info(f"Saving video frames ea_{ea_i}... ")
+                                else:
+                                    save_path = save_sample(
+                                        video,
+                                        fps=save_fps,
+                                        save_path=save_path,
+                                        verbose=verbose >= 2,
+                                    )
+                                    logger.info(f"Saving video sample ea_{ea_i}... ")
+                                if save_path.endswith(".mp4") and cfg.get("watermark", False):
+                                    time.sleep(1)  # prevent loading previous generated video
+                                    add_watermark(save_path)
+                except ValueError as e:
+                # Catch the specific error if ea_timesteps is None and report it
+                    print(f"ea_timesteps_list is None!")
     
         start_idx += len(batch_prompts)
     video_sample_num = start_idx * len(ea_timesteps_list)
