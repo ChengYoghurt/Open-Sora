@@ -249,7 +249,6 @@ def main():
     logging.getLogger().addHandler(fh)
 
     logging.info("Inference configuration:\n %s", pformat(cfg.to_dict()))
-    exit(0)
 
     # ======================================================
     # build model & load weights

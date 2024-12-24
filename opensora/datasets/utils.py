@@ -180,6 +180,43 @@ def save_sample(x, save_path=None, fps=8, normalize=True, value_range=(-1, 1), f
         print(f"Saved to {save_path}")
     return save_path
 
+def save_sample_as_frames(x, save_path=None, fps=8, normalize=True, value_range=(-1, 1), verbose=True):
+    """
+    Save a tensor either as video or as image frames.
+
+    Args:
+        x (Tensor): shape [C, T, H, W]
+        save_path (str): Base path to save the output.
+        fps (int): Frames per second for video saving.
+        normalize (bool): Normalize the data before saving.
+        value_range (tuple): Range of the values to normalize (min, max).
+        verbose (bool): Print status messages.
+    """
+    assert x.ndim == 4, "Input tensor must have 4 dimensions [C, T, H, W]"
+    
+    # Ensure save_path is provided
+    assert save_path is not None, "Please provide a valid save_path."
+    
+    # Normalize if required
+    if normalize:
+        low, high = value_range
+        x.clamp_(min=low, max=high)
+        x.sub_(low).div_(max(high - low, 1e-5))
+
+    # Save as frames (image sequence)
+    frame_dir = f"{save_path}_frames"
+    os.makedirs(frame_dir, exist_ok=True)
+    
+    for t in range(x.shape[1]):  # Loop over time (frames)
+        frame = x[:, t, :, :].unsqueeze(0)  # Extract frame and add batch dim
+        frame_path = os.path.join(frame_dir, f"frame_{t:04d}.png")
+        save_image(frame, frame_path)
+
+    if verbose:
+        print(f"All {x.shape[1]} frames saved to {frame_dir}")
+    
+    return frame_dir
+
 
 def center_crop_arr(pil_image, image_size):
     """
