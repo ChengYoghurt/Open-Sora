@@ -10,6 +10,7 @@ verbose = 1
 save_latent = False
 ref_latent = "./assets/ea/"
 save_dir = "./samples/ea_samples/"
+ea_timesteps = "/home/yfeng/ygcheng/src/Open-Sora/outputs/search_step10_rl_scheduler/ea_timesteps.yaml"
 seed = 42
 batch_size = 1
 multi_resolution = "STDiT2"

@@ -1,0 +1,1 @@
+python scripts/inference.py configs/opensora-v1-2/inference/sample_ea.py
