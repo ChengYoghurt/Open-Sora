@@ -55,7 +55,7 @@ echo "DOUBLE_FRAMES=${DOUBLE_FRAMES}"
 echo "QUAD_FRAMES=${QUAD_FRAMES}"
 echo "OCT_FRAMES=${OCT_FRAMES}"
 
-CMD="python /home/yfeng/ygcheng/Open-Sora/scripts/inference.py /home/yfeng/ygcheng/Open-Sora/configs/opensora-v1-2/inference/sample.py"
+CMD="python /home/yfeng/ygcheng/src/Open-Sora/scripts/inference.py /home/yfeng/ygcheng/src/Open-Sora/configs/opensora-v1-2/inference/sample.py"
 if [[ $CKPT == *"ema"* ]]; then
   parentdir=$(dirname $CKPT)
   CKPT_BASE=$(basename $parentdir)_ema
@@ -77,13 +77,13 @@ VBENCH_W=426
 function run_vbench() {
   if [ -z ${VBENCH_RES} ] || [ -z ${VBENCH_ASP_RATIO} ]; then
     eval $CMD --ckpt-path $CKPT --save-dir ${OUTPUT}_vbench --prompt-as-path --num-sample 5 \
-      --prompt-path /home/yfeng/ygcheng/extracted_prompts_200.txt \
+      --prompt-path /home/yfeng/ygcheng/src/Open-Sora/assets/texts/VBench/prompts_per_category/scenery.txt \
       --image-size $VBENCH_H $VBENCH_W \
       --batch-size $VBENCH_BS --num-frames $NUM_FRAMES --start-index $1 --end-index $2
   else
     if [ -z ${NUM_SAMPLING_STEPS} ]; then
         eval $CMD --ckpt-path $CKPT --save-dir ${OUTPUT}_vbench --prompt-as-path --num-sample 5 \
-        --prompt-path /home/yfeng/ygcheng/extracted_prompts_200.txt \
+        --prompt-path /home/yfeng/ygcheng/src/Open-Sora/assets/texts/VBench/prompts_per_category/scenery.txt \
         --resolution $VBENCH_RES --aspect-ratio $VBENCH_ASP_RATIO \
         --batch-size $VBENCH_BS --num-frames $NUM_FRAMES --start-index $1 --end-index $2
     else
