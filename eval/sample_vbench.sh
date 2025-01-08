@@ -62,7 +62,7 @@ if [[ $CKPT == *"ema"* ]]; then
 else
   CKPT_BASE=$(basename $CKPT)
 fi
-OUTPUT="/home/yfeng/ygcheng/Open-Sora/samples/samples_${MODEL_NAME}_${CKPT_BASE}"
+OUTPUT="/home/yfeng/ygcheng/src/Open-Sora/samples/samples_${MODEL_NAME}_${CKPT_BASE}"
 start=$(date +%s)
 DEFAULT_BS=1
 
@@ -74,16 +74,17 @@ VBENCH_BS=1 # 80GB
 VBENCH_H=240
 VBENCH_W=426
 
+# --prompt-as-path
 function run_vbench() {
   if [ -z ${VBENCH_RES} ] || [ -z ${VBENCH_ASP_RATIO} ]; then
-    eval $CMD --ckpt-path $CKPT --save-dir ${OUTPUT}_vbench --prompt-as-path --num-sample 5 \
-      --prompt-path /home/yfeng/ygcheng/src/Open-Sora/assets/texts/VBench/prompts_per_category/scenery.txt \
+    eval $CMD --ckpt-path $CKPT --save-dir ${OUTPUT}_vbench --num-sample 5 \
+      --prompt-path /home/yfeng/ygcheng/src/Open-Sora/assets/texts/t2v_sora.txt \
       --image-size $VBENCH_H $VBENCH_W \
       --batch-size $VBENCH_BS --num-frames $NUM_FRAMES --start-index $1 --end-index $2
   else
     if [ -z ${NUM_SAMPLING_STEPS} ]; then
         eval $CMD --ckpt-path $CKPT --save-dir ${OUTPUT}_vbench --prompt-as-path --num-sample 5 \
-        --prompt-path /home/yfeng/ygcheng/src/Open-Sora/assets/texts/VBench/prompts_per_category/scenery.txt \
+        --prompt-path /home/yfeng/ygcheng/src/Open-Sora/assets/texts/t2v_sora.txt \
         --resolution $VBENCH_RES --aspect-ratio $VBENCH_ASP_RATIO \
         --batch-size $VBENCH_BS --num-frames $NUM_FRAMES --start-index $1 --end-index $2
     else
