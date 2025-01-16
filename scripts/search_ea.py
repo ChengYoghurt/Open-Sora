@@ -84,7 +84,7 @@ def str2bool(value):
     elif value.lower() in ['false', '0', 'f', 'n', 'no']:
         return False
     else:
-        raise ValueError(f"Invalid value for boolean: {value}")
+        raise ValueError("Invalid value for boolean ", value)
 
 def main():
     parser = argparse.ArgumentParser()
@@ -202,6 +202,11 @@ def main():
         "--use_ddim_init_x",
         type=str2bool, # the parser does not automatically convert strings like 'false' or 'true' into actual boolean values (False or True).
         default=False,
+    )
+    parser.add_argument(
+        "--use_time_transform",
+        type=str2bool,
+        default=True,
     )
     opt = parser.parse_args()
 
@@ -332,7 +337,6 @@ def main():
     guidance_scale
     progress: show tqdm progress bar
     ''' 
-
     ## build EA
     t = time.time()
     searcher = EvolutionSearcher(opt=opt, model=model, text_encoder=text_encoder, vae=vae, time_step=opt.time_step, ref_latent=opt.ref_latent, ref_sigma=opt.ref_sigma, sampler=sampler, dataloader_info=None, batch_size=batch_size, device=device, dtype=dtype, dpm_params=dpm_params)

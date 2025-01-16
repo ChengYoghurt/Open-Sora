@@ -11,5 +11,6 @@ python scripts/search_ea.py \
 --crossover_num 10 \
 --seed 1024 \
 --use_ddim_init_x false \
+--use_time_transform true \
 --ref_latent '/home/yfeng/ygcheng/src/Open-Sora/assets/ea/video_240p_f51.pt' \
 --ref_sigma '/home/yfeng/ygcheng/src/AutoDiffusion/assets/coco2014_sigma.npy' \

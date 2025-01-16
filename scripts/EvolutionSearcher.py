@@ -73,6 +73,7 @@ from opensora.utils.inference_utils import (
     split_prompt,
 )
 from opensora.utils.misc import all_exists, create_logger, is_distributed, is_main_process, to_torch_dtype
+from opensora.schedulers.rf import timestep_transform
 
 choice = lambda x: x[np.random.randint(len(x))] if isinstance(
     x, tuple) else choice(tuple(x))
@@ -123,7 +124,7 @@ class EvolutionSearcher(object):
         self.dpm_params = dpm_params
         self.device = device
         self.dtype = dtype
-    
+
     def update_top_k(self, candidates, *, k, key, reverse=False):
         assert k in self.keep_top_k
         logging.info('select ......')
@@ -166,6 +167,7 @@ class EvolutionSearcher(object):
     
     def get_random_before_search(self, num):
         logging.info('random select ........')
+        self.model_args = self.init_model_args(device=self.device)
         while len(self.candidates) < num:
             if self.opt.dpm_solver:
                 cand = self.sample_active_subnet_dpm()
@@ -393,7 +395,7 @@ class EvolutionSearcher(object):
         # TODO: Swap the init timesteps with rf timesteps
         # original_num_steps = self.sampler.ddpm_num_timesteps
         # use_timestep = [i for i in range(original_num_steps)]
-        original_timestep = [(1.0 - i / self.sampler.num_sampling_steps) * self.sampler.num_timesteps for i in range(self.sampler.num_sampling_steps)] # Copied from rf __init__.py
+        original_timestep = self.sampler.get_full_timesteps(additional_args=self.model_args)
         random.shuffle(original_timestep)
         use_timestep = original_timestep[:self.time_step] # time_step is set by ea searcher
         return use_timestep
@@ -411,6 +413,34 @@ class EvolutionSearcher(object):
         mse_loss = F.mse_loss(cand_latent, self.ref_latent)
         print("MSE Loss:", mse_loss.item())
         return mse_loss.item()
+
+    def init_model_args(self, device='cuda'):
+        cfg = read_config(f"{self.opt.config}")  # Load Open-Sora config file
+
+        # == load prompts ==
+        prompts = cfg.get("prompt", None)
+        start_idx = cfg.get("start_index", 0)
+        if prompts is None:
+            if cfg.get("prompt_path", None) is not None:
+                prompts = load_prompts(cfg.prompt_path, start_idx, cfg.get("end_index", None))
+            else:
+                prompts = [cfg.get("prompt_generator", "")] * 1_000_000  # endless loop
+
+        # == prepare video size ==
+        image_size = cfg.get("image_size", None)
+        if image_size is None:
+            resolution = cfg.get("resolution", None)
+            aspect_ratio = cfg.get("aspect_ratio", None)
+            assert (
+                resolution is not None and aspect_ratio is not None
+            ), "resolution and aspect_ratio must be provided if image_size is not provided"
+            image_size = get_image_size(resolution, aspect_ratio)
+        num_frames = get_num_frames(cfg.num_frames)
+
+        # == multi-resolution info ==
+        return prepare_multi_resolution_info(
+                cfg.get("multi_resolution", None), len(prompts), image_size, num_frames, cfg.fps, device, self.dtype
+            )
     
     def generate_cand_video(self, cand=None, device='cuda'):
         # exit(0)
@@ -464,10 +494,6 @@ class EvolutionSearcher(object):
         verbose = cfg.get("verbose", 1)
         progress_wrap = tqdm if verbose == 1 else (lambda x: x)
 
-        # print("prompts=", prompts)
-        # print("prompts_len=", len(prompts))
-        # print("batch_size=", batch_size)
-
         # == Iter over all samples ==
         for i in progress_wrap(range(0, len(prompts), batch_size)):
             # == prepare batch prompts ==
@@ -482,14 +508,10 @@ class EvolutionSearcher(object):
             # == get reference for condition ==
             refs = collect_references_batch(refs, self.vae, image_size)
 
-            # == multi-resolution info ==
-            model_args = prepare_multi_resolution_info(
-                multi_resolution, len(batch_prompts), image_size, num_frames, fps, device, self.dtype
-            )
-            # TODO
-            self.model_args = model_args
-
+            # print(f"len(batch_prompts)={len(batch_prompts)}") # 1 batch_prompts=['a beautiful waterfall']
+            # print(f"len(prompts)={len(prompts)}") # 1
             # print("num_sample=", num_sample)
+
             # == Iter over number of sampling for one prompt ==
             for k in range(num_sample):
                 # == prepare save paths ==
@@ -563,7 +585,7 @@ class EvolutionSearcher(object):
                         z=z,
                         prompts=batch_prompts_loop,
                         device=device,
-                        additional_args=model_args,
+                        additional_args=self.model_args,
                         progress=verbose >= 2,
                         mask=masks,
                         ea_timesteps=cand,
@@ -594,6 +616,7 @@ class EvolutionSearcher(object):
         #     start_idx += len(batch_prompts)
         # logger.info("Inference finished.")
         # logger.info("Saved %s samples to %s", start_idx, save_dir)
+
 
     def search(self):
         logging.info('population_num = {} select_num = {} mutation_num = {} crossover_num = {} random_num = {} max_epochs = {}'.format(
