@@ -207,14 +207,22 @@ class EvolutionSearcher(object):
             cand2 = choice(self.keep_top_k[k])
 
             new_cand = []
+            selected = set()  # Track unique selections
+
             cand1 = eval(cand1)
             cand2 = eval(cand2)
 
             for i in range(len(cand1)):
-                if np.random.random_sample() < 0.5:
+                if np.random.random_sample() < 0.5 and cand1[i] not in selected:
                     new_cand.append(cand1[i])
-                else:
+                    selected.add(cand1[i])
+                elif cand2[i] not in selected:
                     new_cand.append(cand2[i])
+                    selected.add(cand2[i])
+
+            # Ensure new_cand has the same length as original sequences
+            remaining = [x for x in cand1 + cand2 if x not in selected]
+            new_cand.extend(remaining[:len(cand1) - len(new_cand)])
 
             return new_cand
 
@@ -229,6 +237,7 @@ class EvolutionSearcher(object):
             logging.info('cross {}/{}'.format(len(res), cross_num))
 
         logging.info('cross_num = {}'.format(len(res)))
+        exit(0)
         return res
     
     def get_mutation(self, k, mutation_num, m_prob):
