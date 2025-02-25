@@ -203,5 +203,7 @@ vbench
 !eval/vbench
 vbench2_beta_i2v
 
-results/
+results
 assets/ea
+samples
+assets
